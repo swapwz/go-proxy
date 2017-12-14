@@ -4,7 +4,6 @@ import (
     "fmt"
     "net"
     "log"
-    "encoding/binary"
 )
 
 var localAddr = "127.0.0.1:1080"
@@ -31,8 +30,8 @@ const (
     REQ_UDP_ASSOCIATE = 0x03
     RSV = 0x0
     ADDR_TYPE_IPV4 = 0x01
-    ADDR_TYPE_DOMAINNAME = 0x02
-    ADDR_TYPE_IPV6 = 0x03
+    ADDR_TYPE_DOMAINNAME = 0x03
+    ADDR_TYPE_IPV6 = 0x04
 )
 
 func handShake(conn net.Conn) {
@@ -59,32 +58,36 @@ request format
 | 1  |  1  | X'00' |  1   | Variable |    2     |
 +----+-----+-------+------+----------+----------+
 */
-func getRequest(conn net.Conn) error {
+func getRequest(serverConn, conn net.Conn) error {
     header := make([]byte, 4) 
     conn.Read(header)  
     ver := header[0]
     cmd := header[1]
     addr_type := header[3]
-    fmt.Printf("Request ver %v, cmd %v add type %v\r\n", ver,
+    fmt.Printf("Request ver %v, cmd %v addr type %v\r\n", ver,
         cmd, addr_type)
+    serverConn.Write(header)
     if addr_type == ADDR_TYPE_IPV4 {
         dst_addr := make([]byte, 4) 
         conn.Read(dst_addr)
         fmt.Printf("dst_addr: %v\r\n", dst_addr)
     } else if addr_type == ADDR_TYPE_DOMAINNAME {
         len := make([]byte, 1)
+        fmt.Printf("*****before read length\r\n")
         conn.Read(len)
+        fmt.Printf("************read addr len %q\r\n", len)
         domain := make([]byte, len[0])
         conn.Read(domain)
-        fmt.Printf("domain: %v\r\n", domain)
+        fmt.Printf("************domain: %q\r\n", domain)
+        serverConn.Write(len)
+        serverConn.Write(domain)
     }
     port := make([]byte, 2)
-    _,err := conn.Read(port)
+    _, err := conn.Read(port)
     if err != nil {
         return err    
     }
-    port_num := binary.BigEndian.Uint16(port)
-    fmt.Printf("port %d\r\n", port_num)
+
     switch cmd {
         case REQ_CMD_CONNECT:
             fmt.Printf("req connect\r\n")
@@ -93,6 +96,11 @@ func getRequest(conn net.Conn) error {
         default:
             fmt.Printf("unknown\r\n")
     }
+
+    serverConn.Write(port)
+    ret := make([]byte, 1)
+    serverConn.Read(ret)
+    fmt.Printf("server return %d\r\n", ret)
     return nil
 }
 
@@ -111,23 +119,24 @@ func sendReply(conn net.Conn) {
     conn.Write(reply)
 }
 
-func passData(conn net.Conn) {
+func forwardData(serverConn, conn net.Conn) {
     buf := make([]byte, 4096)
     for  {
         cnt, err := conn.Read(buf)    
         if err != nil {
                 
         } else {
-            fmt.Printf("%v\r\n", buf[:cnt])
+            serverConn.Write(buf[:cnt])
+     //       fmt.Printf("%v\r\n", buf[:cnt])
         }
     }
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(serverConn net.Conn, conn net.Conn) {
     handShake(conn)
-    getRequest(conn)
+    getRequest(serverConn, conn)
     sendReply(conn)
-    passData(conn)
+    forwardData(serverConn, conn)
 }
 
 func hello2ProxyServer(addr string) (net.Conn, error) {
@@ -139,7 +148,7 @@ func hello2ProxyServer(addr string) (net.Conn, error) {
 }
 
 func main() {
-    _,err := hello2ProxyServer(serverAddr)
+    serverConn, err := hello2ProxyServer(serverAddr)
     if err != nil {
         fmt.Printf("failed to connect proxy server: %v\r\n", err)     
         return
@@ -158,6 +167,6 @@ func main() {
              fmt.Printf("Failed to accept new client.\r\n")     
              return
         }
-        go handleConnection(conn)
+        handleConnection(serverConn, conn)
     }
 }
