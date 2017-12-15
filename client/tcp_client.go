@@ -2,6 +2,7 @@ package main
 
 import (
     "fmt"
+    "io"
     "net"
     "log"
 )
@@ -88,19 +89,10 @@ func getRequest(serverConn, conn net.Conn) error {
         return err    
     }
 
-    switch cmd {
-        case REQ_CMD_CONNECT:
-            fmt.Printf("req connect\r\n")
-        case REQ_CMD_BIND:
-            fmt.Printf("req bind\r\n")
-        default:
-            fmt.Printf("unknown\r\n")
-    }
-
     serverConn.Write(port)
     ret := make([]byte, 1)
     serverConn.Read(ret)
-    fmt.Printf("server return %d\r\n", ret)
+    fmt.Printf("server accept proxy: %d\r\n", ret)
     return nil
 }
 
@@ -124,10 +116,21 @@ func forwardData(serverConn, conn net.Conn) {
     for  {
         cnt, err := conn.Read(buf)    
         if err != nil {
-                
+            for {
+                cnt, err := serverConn.Read(buf)
+                if err == io.EOF {
+                    fmt.Printf("write ok: %v %d\r\n", err, cnt)   
+                    return
+                }
+                conn.Write(buf[:cnt])
+            }
+            conn.Write(buf[:cnt])
         } else {
+            fmt.Printf("read cnt %d\r\n", cnt)
+            for i := 0; i < cnt; i++ {
+                fmt.Printf("%c", buf[i])
+            }
             serverConn.Write(buf[:cnt])
-     //       fmt.Printf("%v\r\n", buf[:cnt])
         }
     }
 }
@@ -140,6 +143,7 @@ func handleConnection(serverConn net.Conn, conn net.Conn) {
 }
 
 func hello2ProxyServer(addr string) (net.Conn, error) {
+    fmt.Printf("start connect to server: %v\r\n", addr)
     server_conn, err := net.Dial("tcp", addr) 
     if err != nil {
         return nil, err
@@ -167,6 +171,6 @@ func main() {
              fmt.Printf("Failed to accept new client.\r\n")     
              return
         }
-        handleConnection(serverConn, conn)
+        go handleConnection(serverConn, conn)
     }
 }
