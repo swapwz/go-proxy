@@ -27,12 +27,13 @@ func acceptClient(conn net.Conn) {
         fmt.Printf("Get port %d\r\n", port_num)
         targetAddr := fmt.Sprintf("%s:%d", string(domain[:]), port_num)
         fmt.Printf("get target addr: %v\r\n", targetAddr)
-        tunnel, err := net.Dial("tcp", targetAddr)
+        target, err := net.Dial("tcp", targetAddr)
         if err != nil {
            fmt.Printf("err dial to %s: %v\r\n", string(domain), err)
            return
         }
-        fmt.Printf("connect to target ok: %v\r\n", tunnel)
+        fmt.Printf("connect to target ok: %v\r\n", target)
+        tunnel = target
         ret := make([]byte, 1)
         ret[0] = 'c'
         conn.Write(ret)
