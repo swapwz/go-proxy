@@ -5,6 +5,7 @@ import (
     "io"
     "net"
     "log"
+    "encoding/binary"
 )
 
 var localAddr = "127.0.0.1:1080"
@@ -74,12 +75,10 @@ func getRequest(serverConn, conn net.Conn) error {
         fmt.Printf("dst_addr: %v\r\n", dst_addr)
     } else if addr_type == ADDR_TYPE_DOMAINNAME {
         len := make([]byte, 1)
-        fmt.Printf("*****before read length\r\n")
         conn.Read(len)
-        fmt.Printf("************read addr len %q\r\n", len)
         domain := make([]byte, len[0])
         conn.Read(domain)
-        fmt.Printf("************domain: %q\r\n", domain)
+        fmt.Printf("get domain: %q\r\n", domain)
         serverConn.Write(len)
         serverConn.Write(domain)
     }
@@ -113,25 +112,32 @@ func sendReply(conn net.Conn) {
 
 func forwardData(serverConn, conn net.Conn) {
     buf := make([]byte, 4096)
+    end := make([]byte, 1)
+    end[0] = 0
     for  {
-        cnt, err := conn.Read(buf)    
-        if err != nil {
+        cnt, err := conn.Read(buf[4:])    
+        fmt.Printf("forwarding %dbytes data\r\n", cnt)
+        length := uint32(cnt)
+        // convert length to first 4 bytes
+        binary.BigEndian.PutUint32(buf[:4], length)
+        if cnt != 0 && err == nil {
+            cnt, err = serverConn.Write(buf[:4+cnt])
+            fmt.Printf("pass %dbytes to server: %v\r\n", cnt, err)
+        } else if cnt == 0 || err == io.EOF {
+            fmt.Printf("forwarding over, waiting for server response: %v\r\n", err)
             for {
                 cnt, err := serverConn.Read(buf)
-                if err == io.EOF {
-                    fmt.Printf("write ok: %v %d\r\n", err, cnt)   
+                fmt.Printf("get %dbytes data from server\r\n", cnt)
+                if err == nil {
+                    conn.Write(buf[:cnt])
+                } else if err == io.EOF {
+                    fmt.Printf("get data over\r\n")   
+                    conn.Write(end)
+                    conn.Close() 
                     return
                 }
-                conn.Write(buf[:cnt])
             }
-            conn.Write(buf[:cnt])
-        } else {
-            fmt.Printf("read cnt %d\r\n", cnt)
-            for i := 0; i < cnt; i++ {
-                fmt.Printf("%c", buf[i])
-            }
-            serverConn.Write(buf[:cnt])
-        }
+        } 
     }
 }
 
@@ -169,8 +175,8 @@ func main() {
         conn, err := localProxy.Accept()     
         if err != nil {
              fmt.Printf("Failed to accept new client.\r\n")     
-             return
+             break
         }
-        go handleConnection(serverConn, conn)
+        handleConnection(serverConn, conn)
     }
 }
