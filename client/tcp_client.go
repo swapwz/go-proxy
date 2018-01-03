@@ -5,7 +5,6 @@ import (
     "io"
     "net"
     "log"
-    "encoding/binary"
 )
 
 var localAddr = "127.0.0.1:1080"
@@ -110,35 +109,46 @@ func sendReply(conn net.Conn) {
     conn.Write(reply)
 }
 
-func forwardData(serverConn, conn net.Conn) {
-    buf := make([]byte, 4096)
-    end := make([]byte, 1)
-    end[0] = 0
-    for  {
-        cnt, err := conn.Read(buf[4:])    
-        fmt.Printf("forwarding %dbytes data\r\n", cnt)
-        length := uint32(cnt)
-        // convert length to first 4 bytes
-        binary.BigEndian.PutUint32(buf[:4], length)
-        if cnt != 0 && err == nil {
-            cnt, err = serverConn.Write(buf[:4+cnt])
-            fmt.Printf("pass %dbytes to server: %v\r\n", cnt, err)
-        } else if cnt == 0 || err == io.EOF {
-            fmt.Printf("forwarding over, waiting for server response: %v\r\n", err)
-            for {
-                cnt, err := serverConn.Read(buf)
-                fmt.Printf("get %dbytes data from server\r\n", cnt)
-                if err == nil {
-                    conn.Write(buf[:cnt])
-                } else if err == io.EOF {
-                    fmt.Printf("get data over\r\n")   
-                    conn.Write(end)
-                    conn.Close() 
-                    return
-                }
-            }
-        } 
+func reader(data_queue chan []byte, done chan bool, src net.Conn) {
+    buf := make([]byte, 4096)  
+    for { 
+        cnt, err := src.Read(buf) 
+        if err == io.EOF || cnt == 0 {
+            fmt.Printf("game over\r\n")
+            done <- true
+            break     
+        }
+
+        fmt.Printf("push %dbytes data into recv_buf\r\n", cnt)
+        data_queue <- buf[:cnt]
     }
+}
+
+func writer(data_queue chan []byte, conn net.Conn) {
+    for {
+        buf := <- data_queue
+        cnt, err := conn.Write(buf)
+        fmt.Printf("pass %dbytes to server: %v\r\n", cnt, err)
+        if err != nil {
+            break     
+        }
+    }
+}
+
+func transfer(src, dst net.Conn) {
+    data_queue := make(chan []byte)
+    done := make(chan bool, 1)
+    
+    go reader(data_queue, done, src)
+    go writer(data_queue, dst)
+    <- done 
+    src.Close()
+    dst.Close()
+}
+
+func forwardData(remote, local net.Conn) {
+    go transfer(local, remote)
+    go transfer(remote, local)
 }
 
 func handleConnection(serverConn net.Conn, conn net.Conn) {
