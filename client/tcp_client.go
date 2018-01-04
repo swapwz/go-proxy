@@ -5,6 +5,7 @@ import (
     "io"
     "net"
     "log"
+    "time"
 )
 
 var localAddr = "127.0.0.1:1080"
@@ -110,11 +111,11 @@ func sendReply(conn net.Conn) {
 }
 
 func reader(data_queue chan []byte, done chan bool, src net.Conn) {
-    buf := make([]byte, 4096)  
+    buf := make([]byte, bufSize)  
     for { 
         cnt, err := src.Read(buf) 
-        if err == io.EOF || cnt == 0 {
-            fmt.Printf("game over\r\n")
+        if err == io.EOF || cnt == 0 || err != nil {
+            fmt.Printf("game over: %d\r\n", cnt)
             done <- true
             break     
         }
@@ -135,23 +136,25 @@ func writer(data_queue chan []byte, conn net.Conn) {
     }
 }
 
-func transfer(src, dst net.Conn) {
+func transfer(src, dst net.Conn, done chan bool) {
     data_queue := make(chan []byte)
-    done := make(chan bool, 1)
     
     go reader(data_queue, done, src)
     go writer(data_queue, dst)
-    <- done 
-    src.Close()
-    dst.Close()
 }
 
 func forwardData(remote, local net.Conn) {
-    go transfer(local, remote)
-    go transfer(remote, local)
+    read_done := make(chan bool, 1)
+    write_done := make(chan bool, 1)
+    go transfer(local, remote, read_done)
+    go transfer(remote, local, write_done)
+    <- read_done
+    <- write_done
+    remote.Close()
+    local.Close()
 }
 
-func handleConnection(serverConn net.Conn, conn net.Conn) {
+func handleConnection(serverConn, conn net.Conn) {
     handShake(conn)
     getRequest(serverConn, conn)
     sendReply(conn)
@@ -168,14 +171,6 @@ func hello2ProxyServer(addr string) (net.Conn, error) {
 }
 
 func main() {
-    serverConn, err := hello2ProxyServer(serverAddr)
-    if err != nil {
-        fmt.Printf("failed to connect proxy server: %v\r\n", err)     
-        return
-    }
-
-    fmt.Printf("connect to proxy server %s: ok\r\n", serverAddr)
-
     localProxy, err := net.Listen("tcp", localAddr)
     if err != nil {
          log.Fatal("Create local proxy server failed: %v\r\n", err)     
@@ -187,6 +182,18 @@ func main() {
              fmt.Printf("Failed to accept new client.\r\n")     
              break
         }
+
+        var serverConn net.Conn
+        for {
+            serverConn, err = hello2ProxyServer(serverAddr)
+            if err == nil {
+                fmt.Printf("connect to proxy server %s: ok\r\n", serverAddr)
+            } else {
+                fmt.Printf("failed to connect proxy server: %v\r\n", err)     
+                time.Sleep(1)
+            }
+        }
+
         handleConnection(serverConn, conn)
     }
 }

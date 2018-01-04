@@ -35,9 +35,8 @@ func writer(data_queue chan []byte, conn net.Conn) {
     }    
 }
 
-func transfer(src, dst net.Conn) {
+func transfer(src, dst net.Conn, done chan bool) {
     data_queue := make(chan []byte)
-    done := make(chan bool, 1)
 
     go reader(data_queue, done, src)
     go writer(data_queue, dst)
@@ -48,8 +47,14 @@ func transfer(src, dst net.Conn) {
 
 func forwardData(local, remote net.Conn) {
     fmt.Printf("forwarding data for client\r\n")
-    go transfer(local, remote)
-    go transfer(remote, local)
+    read_done := make(chan bool, 1)
+    write_done := make(chan bool, 1)
+    go transfer(local, remote, read_done)
+    go transfer(remote, local, write_done)
+    <- read_done
+    <- write_done
+    local.Close()
+    remote.Close()
 }
 
 func acceptClient(conn net.Conn) {
