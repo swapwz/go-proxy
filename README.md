@@ -1,2 +1,4 @@
-Perform SOCKS 5 RFC1938
-The proxy-server help client to connect to target.
+```
+   Perform SOCKS 5 RFC1938 
+   It forwards the request came from client to the target.
+```
