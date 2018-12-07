@@ -16,17 +16,19 @@ func transfer(src, dst net.Conn) {
         if cnt > 0 {
             cnt, err = dst.Write(buf[:cnt])
             if err != nil {
-                fmt.Printf("Write error")
+                fmt.Printf("Write error\r\n")
+                dst.Close()
                 break
             }
         }
         if cnt == 0 {
-            fmt.Printf("Read over")
+            fmt.Printf("Read over\r\n")
             break
         }
 
         if err != nil {
            fmt.Printf("Read error")
+           src.Close()
            break
         }
     }
@@ -154,12 +156,11 @@ func main() {
 
     for {
         conn, err := server.Accept()
-        fmt.Printf("Get a new connection\r\n")
         if err != nil {
             fmt.Print("failed to accept: %v\r\n", err)
         } else {
-            acceptClient(conn)
-            fmt.Printf("Process connection over\r\n")
+            fmt.Printf("Get a new connection\r\n")
+            go acceptClient(conn)
         }
     }
 }
