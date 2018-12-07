@@ -3,66 +3,35 @@ package main
 import (
     "fmt"
     "net"
-    "io"
     "encoding/binary"
 )
 
 var listenAddr = "0.0.0.0:8080"
 
-func reader(data_queue chan []byte, done chan bool, conn net.Conn) {
-    buf := make([]byte, 4096)
+func transfer(src, dst net.Conn) {
+    var buf [8192]byte
+
     for {
-        cnt, err := conn.Read(buf)
-        if err == io.EOF || cnt == 0 || err != nil {
-            var eof [1]byte
-            eof[0] = 0
-            done <- true
-            fmt.Printf("game over\r\n")
-            data_queue <- eof[:]
+        cnt, err := src.Read(buf[:])
+        if cnt > 0 {
+            cnt, err = dst.Write(buf[:cnt])
+            if err != nil {
+                fmt.Printf("Write error")
+                break
+            }
+        }
+        if cnt == 0 {
+            fmt.Printf("Read over")
             break
         }
 
-        fmt.Printf("push %d bytes data into recv_buf\r\n", cnt)
-        fmt.Printf("Read from client: %v\r\n", buf[:cnt])
-        data_queue <- buf[:cnt]
-    }
-}
-
-func writer(data_queue chan []byte, conn net.Conn) {
-    for {
-        buf := <-data_queue
-        if len(buf) == 1 && buf[0] == 0 {
-            fmt.Printf("Peer over\r\n")
-            break
-        }
-        cnt, err := conn.Write(buf)
-        fmt.Printf("pass %d bytes to server\r\n", cnt)
         if err != nil {
-            fmt.Printf("Peer close\r\n")
-            break
+           fmt.Printf("Read error")
+           break
         }
     }
 }
 
-func transfer(src, dst net.Conn, done chan bool) {
-    data_queue := make(chan []byte)
-
-    go reader(data_queue, done, src)
-    go writer(data_queue, dst)
-}
-
-func forwardData(local, remote net.Conn) {
-    fmt.Printf("Begin forwarding\r\n")
-    read_done := make(chan bool, 1)
-    write_done := make(chan bool, 1)
-    go transfer(local, remote, read_done)
-    go transfer(remote, local, write_done)
-    <-read_done
-    <-write_done
-    local.Close()
-    remote.Close()
-    fmt.Printf("End forwarding\r\n")
-}
 
 func runProxyV4(conn net.Conn) {
     command := make([]byte, 1)
@@ -95,7 +64,6 @@ func runProxyV4(conn net.Conn) {
             fmt.Printf("Failed to connect %q\r\n", targetAddr)
             conn.Write(response[:])
             conn.Close()
-            return
         } else {
             response[1] = 90
             fmt.Printf("Connect target OK.\r\n")
@@ -106,10 +74,9 @@ func runProxyV4(conn net.Conn) {
                 fmt.Printf("Read: %q\r\n", octect)
             }
             conn.Write(response[:])
+            go transfer(conn, target)
+            go transfer(target, conn)
         }
-        //forwardData(conn, target)
-        go io.Copy(conn, target)
-        go io.Copy(target, conn)
     } else {
         fmt.Printf("Not supported request:%v.\r\n", command[0])
     }
@@ -151,7 +118,9 @@ func runProxyV5(conn net.Conn) {
     ret[0] = 'c'
     conn.Write(ret)
 
-    //forwardData(conn, target)
+    go transfer(conn, target)
+    go transfer(target, conn)
+
     return
 }
 
