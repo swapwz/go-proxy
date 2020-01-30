@@ -22,7 +22,7 @@ const (
  |  1 |     1    | 1 to 255 |
  +----+----------+----------+
 */
-const ( 
+const (
     METHOD_NO_AUTH_REQ = 0x0
     METHOD_GSSAPI = 0x01
     METHOD_USERNAME_PASS = 0x02
@@ -111,13 +111,13 @@ func sendReply(conn net.Conn) {
 }
 
 func reader(data_queue chan []byte, done chan bool, src net.Conn) {
-    buf := make([]byte, bufSize)  
-    for { 
-        cnt, err := src.Read(buf) 
+    buf := make([]byte, bufSize)
+    for {
+        cnt, err := src.Read(buf)
         if err == io.EOF || cnt == 0 || err != nil {
             fmt.Printf("game over: %d\r\n", cnt)
             done <- true
-            break     
+            break
         }
 
         fmt.Printf("push %dbytes data into recv_buf\r\n", cnt)
@@ -127,18 +127,18 @@ func reader(data_queue chan []byte, done chan bool, src net.Conn) {
 
 func writer(data_queue chan []byte, conn net.Conn) {
     for {
-        buf := <- data_queue
+        buf := <-data_queue
         cnt, err := conn.Write(buf)
         fmt.Printf("pass %dbytes to server: %v\r\n", cnt, err)
         if err != nil {
-            break     
+            break
         }
     }
 }
 
 func transfer(src, dst net.Conn, done chan bool) {
     data_queue := make(chan []byte)
-    
+
     go reader(data_queue, done, src)
     go writer(data_queue, dst)
 }
@@ -148,8 +148,8 @@ func forwardData(remote, local net.Conn) {
     write_done := make(chan bool, 1)
     go transfer(local, remote, read_done)
     go transfer(remote, local, write_done)
-    <- read_done
-    <- write_done
+    <-read_done
+    <-write_done
     remote.Close()
     local.Close()
 }
@@ -173,13 +173,13 @@ func hello2ProxyServer(addr string) (net.Conn, error) {
 func main() {
     localProxy, err := net.Listen("tcp", localAddr)
     if err != nil {
-         log.Fatal("Create local proxy server failed: %v\r\n", err)     
+         log.Fatal("Create local proxy server failed: %v\r\n", err)
     }
 
     for {
-        conn, err := localProxy.Accept()     
+        conn, err := localProxy.Accept()
         if err != nil {
-             fmt.Printf("Failed to accept new client.\r\n")     
+             fmt.Printf("Failed to accept new client.\r\n")
              break
         }
 
@@ -189,7 +189,7 @@ func main() {
             if err == nil {
                 fmt.Printf("connect to proxy server %s: ok\r\n", serverAddr)
             } else {
-                fmt.Printf("failed to connect proxy server: %v\r\n", err)     
+                fmt.Printf("failed to connect proxy server: %v\r\n", err)
                 time.Sleep(1)
             }
         }
