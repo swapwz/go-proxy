@@ -2,11 +2,16 @@ package main
 
 import (
     "fmt"
+    "log"
     "net"
     "encoding/binary"
 )
 
 var listenAddr = "0.0.0.0:8080"
+
+func init() {
+    log.SetPrefix("[GOPROXY SERVER]")
+}
 
 func transfer(src, dst net.Conn) {
     var buf [8192]byte
@@ -38,7 +43,7 @@ func transfer(src, dst net.Conn) {
 func runProxyV4(conn net.Conn) {
     command := make([]byte, 1)
 
-    fmt.Printf("Run proxy v4 for this connection.\r\n")
+    log.Printf("Run proxy v4 for this connection.\r\n")
 
     conn.Read(command)
     fmt.Printf("Get command %v.\r\n", command)

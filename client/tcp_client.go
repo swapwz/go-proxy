@@ -1,15 +1,16 @@
 package main
 
 import (
-    "fmt"
     "io"
     "net"
     "log"
     "time"
+    "sync"
 )
 
 var localAddr = "127.0.0.1:1080"
-var serverAddr = "www.namespace.cc:61987"
+var serverAddr = "127.0.0.1:8080"
+var waiter sync.WaitGroup
 const (
    bufSize = 4096
 )
@@ -43,13 +44,13 @@ func handShake(conn net.Conn) {
     nmethods := header[1]
     methods := make([]byte, nmethods)
     conn.Read(methods)
-    fmt.Printf("get header: %v, method %v\r\n", header, methods)
+    log.Printf("get header: %v, method %v\r\n", header, methods)
 
     methodNego := make([]byte, 2)
     methodNego[0] = ver
     methodNego[1] = METHOD_NO_AUTH_REQ
     conn.Write(methodNego)
-    fmt.Printf("start proxy\r\n")
+    log.Printf("start proxy\r\n")
 }
 
 /* 
@@ -61,37 +62,37 @@ request format
 +----+-----+-------+------+----------+----------+
 */
 func getRequest(serverConn, conn net.Conn) error {
-    header := make([]byte, 4) 
-    conn.Read(header)  
+    header := make([]byte, 4)
+    conn.Read(header)
     ver := header[0]
     cmd := header[1]
     addr_type := header[3]
-    fmt.Printf("Request ver %v, cmd %v addr type %v\r\n", ver,
+    log.Printf("Request ver %v, cmd %v addr type %v\r\n", ver,
         cmd, addr_type)
     serverConn.Write(header)
     if addr_type == ADDR_TYPE_IPV4 {
         dst_addr := make([]byte, 4) 
         conn.Read(dst_addr)
-        fmt.Printf("dst_addr: %v\r\n", dst_addr)
+        log.Printf("dst_addr: %v\r\n", dst_addr)
     } else if addr_type == ADDR_TYPE_DOMAINNAME {
         len := make([]byte, 1)
         conn.Read(len)
         domain := make([]byte, len[0])
         conn.Read(domain)
-        fmt.Printf("get domain: %q\r\n", domain)
+        log.Printf("get domain: %q\r\n", domain)
         serverConn.Write(len)
         serverConn.Write(domain)
     }
     port := make([]byte, 2)
     _, err := conn.Read(port)
     if err != nil {
-        return err    
+        return err 
     }
 
     serverConn.Write(port)
     ret := make([]byte, 1)
     serverConn.Read(ret)
-    fmt.Printf("server accept proxy: %d\r\n", ret)
+    log.Printf("server accept proxy: %d\r\n", ret)
     return nil
 }
 
@@ -110,46 +111,46 @@ func sendReply(conn net.Conn) {
     conn.Write(reply)
 }
 
-func reader(data_queue chan []byte, done chan bool, src net.Conn) {
+func reader(data_queue chan []byte, src net.Conn) {
     buf := make([]byte, bufSize)
     for {
         cnt, err := src.Read(buf)
         if err == io.EOF || cnt == 0 || err != nil {
-            fmt.Printf("game over: %d\r\n", cnt)
-            done <- true
+            log.Printf("game over: %d\r\n", cnt)
             break
         }
 
-        fmt.Printf("push %dbytes data into recv_buf\r\n", cnt)
+        log.Printf("push %dbytes data into recv_buf\r\n", cnt)
         data_queue <- buf[:cnt]
     }
+    waiter.Done()
 }
 
 func writer(data_queue chan []byte, conn net.Conn) {
     for {
         buf := <-data_queue
         cnt, err := conn.Write(buf)
-        fmt.Printf("pass %dbytes to server: %v\r\n", cnt, err)
+        log.Printf("pass %dbytes to server: %v\r\n", cnt, err)
         if err != nil {
             break
         }
     }
+    waiter.Done()
 }
 
-func transfer(src, dst net.Conn, done chan bool) {
+func transfer(src, dst net.Conn) {
     data_queue := make(chan []byte)
-
-    go reader(data_queue, done, src)
+    waiter.Add(2)
+    go reader(data_queue, src)
     go writer(data_queue, dst)
 }
 
 func forwardData(remote, local net.Conn) {
-    read_done := make(chan bool, 1)
-    write_done := make(chan bool, 1)
-    go transfer(local, remote, read_done)
-    go transfer(remote, local, write_done)
-    <-read_done
-    <-write_done
+    go transfer(local, remote)
+    go transfer(remote, local)
+
+    waiter.Wait()
+
     remote.Close()
     local.Close()
 }
@@ -162,7 +163,7 @@ func handleConnection(serverConn, conn net.Conn) {
 }
 
 func hello2ProxyServer(addr string) (net.Conn, error) {
-    fmt.Printf("start connect to server: %v\r\n", addr)
+    log.Printf("start connect to server: %v\r\n", addr)
     server_conn, err := net.Dial("tcp", addr) 
     if err != nil {
         return nil, err
@@ -179,7 +180,7 @@ func main() {
     for {
         conn, err := localProxy.Accept()
         if err != nil {
-             fmt.Printf("Failed to accept new client.\r\n")
+             log.Printf("Failed to accept new client.\r\n")
              break
         }
 
@@ -187,9 +188,9 @@ func main() {
         for {
             serverConn, err = hello2ProxyServer(serverAddr)
             if err == nil {
-                fmt.Printf("connect to proxy server %s: ok\r\n", serverAddr)
+                log.Printf("connect to proxy server %s: ok\r\n", serverAddr)
             } else {
-                fmt.Printf("failed to connect proxy server: %v\r\n", err)
+                log.Printf("failed to connect proxy server: %v\r\n", err)
                 time.Sleep(1)
             }
         }
