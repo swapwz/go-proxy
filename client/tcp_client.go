@@ -189,6 +189,7 @@ func main() {
             serverConn, err = hello2ProxyServer(serverAddr)
             if err == nil {
                 log.Printf("connect to proxy server %s: ok\r\n", serverAddr)
+                break
             } else {
                 log.Printf("failed to connect proxy server: %v\r\n", err)
                 time.Sleep(1)
